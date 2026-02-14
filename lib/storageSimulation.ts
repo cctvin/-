@@ -20,7 +20,8 @@ export const simulateStoragePlant = (params: SimulationParams): SimulationOutput
     annualDegradation,
     replaceThreshold,
     useActualMonthDays,
-    monthlyCycles
+    monthlyCycles,
+    forcedReplacementYears = []
   } = params;
 
   const yearlyResults: YearResult[] = [];
@@ -31,21 +32,34 @@ export const simulateStoragePlant = (params: SimulationParams): SimulationOutput
 
   const annualCyclesCount = calculateAnnualCycles(monthlyCycles, useActualMonthDays);
 
-  for (let year = 1; year <= operation_years_internal(operationYears); year++) {
+  for (let year = 1; year <= operationYears; year++) {
+    // 检查是否是强制更换年份 (年初触发)
+    const isForced = forcedReplacementYears.includes(year);
+    
+    if (isForced) {
+      currentSohEnd = 1.0;
+      batteryAge = 1;
+      if (!replacementYears.includes(year)) {
+        replacementYears.push(year);
+      }
+    }
+
     const sohStart = currentSohEnd;
     
-    // Degradation logic: Relative to 100% linear degradation
-    // deg_end(i) = first_year + annual * max(0, i-1)
+    // 衰减逻辑：基于电池当前役龄计算
     const cumulativeDeg = firstYearDegradation + annualDegradation * Math.max(0, batteryAge - 1);
     const sohEnd = Math.max(0, 1.0 - cumulativeDeg);
     const sohAvg = (sohStart + sohEnd) / 2;
 
     const annualEnergy = nominalCapacity * sohAvg * dod * systemEfficiency * annualCyclesCount;
     
-    let isReplaced = false;
+    // 检查是否因 SOH 阈值触发更换 (年末判定，影响下一年年初)
+    let thresholdReplaced = false;
     if (sohEnd < replaceThreshold) {
-      isReplaced = true;
-      replacementYears.push(year);
+      thresholdReplaced = true;
+      if (!replacementYears.includes(year)) {
+        replacementYears.push(year);
+      }
     }
 
     yearlyResults.push({
@@ -56,14 +70,16 @@ export const simulateStoragePlant = (params: SimulationParams): SimulationOutput
       sohAvg,
       annualCycles: annualCyclesCount,
       annualEnergy,
-      isReplaced
+      isReplaced: isForced || thresholdReplaced,
+      isForced
     });
 
     totalEnergyMWh += annualEnergy;
 
-    // Preparation for next year
-    if (isReplaced) {
-      currentSohEnd = 1.0; // Reset for next year start
+    // 为下一年做准备
+    if (thresholdReplaced) {
+      // 如果本年末触发了阈值更换，下一年年初 SOH 重置为 1.0
+      currentSohEnd = 1.0;
       batteryAge = 1;
     } else {
       currentSohEnd = sohEnd;
@@ -75,13 +91,8 @@ export const simulateStoragePlant = (params: SimulationParams): SimulationOutput
     totalEnergyMWh,
     totalEnergyBillionKWh: totalEnergyMWh / 1000000,
     avgAnnualEnergyMWh: totalEnergyMWh / operationYears,
-    replacementYears
+    replacementYears: replacementYears.sort((a, b) => a - b)
   };
 
   return { params, yearlyResults, summary };
 };
-
-// Helper to handle loop range properly
-function operation_years_internal(years: number) {
-  return years;
-}

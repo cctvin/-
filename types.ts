@@ -9,6 +9,7 @@ export interface SimulationParams {
   replaceThreshold: number; // 0-1
   useActualMonthDays: boolean;
   monthlyCycles: number[]; // Array of 12 numbers (avg cycles per day)
+  forcedReplacementYears: number[]; // 强制更换电池的年份列表
 }
 
 export interface YearResult {
@@ -20,6 +21,7 @@ export interface YearResult {
   annualCycles: number;
   annualEnergy: number; // MWh
   isReplaced: boolean;
+  isForced: boolean; // 是否是由于强制规则触发的更换
 }
 
 export interface SimulationSummary {
